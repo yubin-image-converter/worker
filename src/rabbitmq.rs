@@ -1,31 +1,63 @@
-use crate::handler::handle_message;
-use crate::message::ImageConvertMessage;
-use lapin::{options::*, types::FieldTable, Connection, ConnectionProperties, Consumer};
-use tokio_stream::StreamExt;
+use lapin::{
+    options::{BasicPublishOptions, ExchangeDeclareOptions},
+    types::FieldTable,
+    BasicProperties, Channel, Connection, ConnectionProperties, ExchangeKind,
+};
+use tokio::sync::OnceCell;
 
-pub async fn start_consumer() -> Result<(), Box<dyn std::error::Error>> {
-    let amqp_url = std::env::var("AMQP_URL")
-        .unwrap_or("amqp://guest:guest@localhost:5672/%2f".to_string());
+use crate::message::ImageProgressMessage;
+use serde_json::to_vec;
 
-    let conn = Connection::connect(&amqp_url, ConnectionProperties::default()).await?;
-    println!("✅ RabbitMQ 연결 완료");
+static CHANNEL: OnceCell<Channel> = OnceCell::const_new();
 
+/// 채널 초기화 + exchange 선언
+pub async fn get_channel() -> anyhow::Result<Channel> {
+    if let Some(channel) = CHANNEL.get() {
+        return Ok(channel.clone());
+    }
+
+    let addr = std::env::var("AMQP_URL")?;
+    let conn = Connection::connect(&addr, ConnectionProperties::default()).await?;
     let channel = conn.create_channel().await?;
-    let queue_name = "convert.image";
 
-    channel.queue_declare(queue_name, QueueDeclareOptions::default(), FieldTable::default()).await?;
-
-    let mut consumer: Consumer = channel
-        .basic_consume(queue_name, "worker-tag", BasicConsumeOptions::default(), FieldTable::default())
+    channel
+        .exchange_declare(
+            "progress_exchange",
+            ExchangeKind::Direct,
+            ExchangeDeclareOptions::default(),
+            FieldTable::default(),
+        )
         .await?;
 
-    println!("🟢 메시지 대기 중...");
+    CHANNEL.set(channel.clone())?;
+    Ok(channel)
+}
 
-    while let Some(result) = consumer.next().await {
-        if let Ok(delivery) = result {
-            handle_message(delivery).await;
-        }
-    }
+/// 진행률 메시지 전송
+pub async fn publish_progress(
+    user_id: &str,
+    request_id: &str,
+    progress: u8,
+) -> anyhow::Result<()> {
+    let message = ImageProgressMessage {
+        user_id: user_id.to_string(),
+        request_id: request_id.to_string(),
+        progress,
+    };
+
+    let payload = to_vec(&message)?; // JSON 직렬화
+    let channel = get_channel().await?;
+
+    channel
+        .basic_publish(
+            "progress_exchange",
+            "progress", // 라우팅 키
+            BasicPublishOptions::default(),
+            &payload,
+            BasicProperties::default(),
+        )
+        .await?
+        .await?; // confirm
 
     Ok(())
 }

@@ -1,10 +1,16 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
 pub struct ImageConvertMessage {
     pub request_id: String,
     pub user_id: String,
-    pub original_filename: String,
-    pub format: String,
-    pub file: Vec<u8>,
+    pub path: String,
+    pub target_format: String, // ex: "png", "jpeg", "webp"
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImageProgressMessage {
+    pub user_id: String,
+    pub request_id: String,
+    pub progress: u8, // 0 ~ 100
 }
