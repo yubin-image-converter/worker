@@ -1,6 +1,7 @@
 mod handler;
 mod message;
 mod rabbitmq;
+mod notifier;
 
 use dotenv::dotenv;
 use lapin::{
@@ -13,7 +14,7 @@ use rabbitmq::get_channel;
 use futures_util::stream::StreamExt;
 use message::ImageConvertMessage;
 use std::env;
-use tokio_amqp::*;
+// use tokio_amqp::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
