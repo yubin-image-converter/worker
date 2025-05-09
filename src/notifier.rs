@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde::Serialize;
 use tokio::time::{sleep, Duration};
 use tokio_tungstenite::connect_async;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::SinkExt;
 use tokio_tungstenite::tungstenite::Message;
 
 #[derive(Serialize)]
@@ -16,53 +16,44 @@ struct AsciiCompletePayload<'a> {
 }
 
 pub async fn notify_ascii_complete(user_id: &str, request_id: &str, txt_url: &str) -> Result<()> {
-    let url = "ws://localhost:4001";
-    let mut retries = 0;
+    let ws_url = "ws://localhost:4001"; // ← path 없이 루트로 연결
     let max_retries = 10;
 
-    println!("🚀 [Rust] ASCII 변환 완료 이벤트 준비됨");
-    println!(
-        "🧾 Payload → userId={}, requestId={}, txtUrl={}",
-        user_id, request_id, txt_url
-    );
+    let payload = AsciiCompletePayload {
+        user_id,
+        request_id,
+        txt_url,
+    };
 
-    loop {
-        match connect_async(url).await {
+    println!("🚀 [Rust] ASCII 변환 완료 알림 준비됨");
+    println!("🧾 Payload → {:?}", serde_json::to_string(&payload)?);
+
+    for attempt in 1..=max_retries {
+        match connect_async(ws_url).await {
             Ok((mut ws_stream, _)) => {
-                println!("✅ [Rust] WebSocket 서버 연결됨: {}", url);
-
-                let payload = AsciiCompletePayload {
-                    user_id,
-                    request_id,
-                    txt_url,
-                };
+                println!("✅ [Rust] WebSocket 연결 성공 ({})", ws_url);
 
                 let json_msg = serde_json::to_string(&payload)?;
-                println!("📤 [Rust] 메시지 전송중...");
-
                 ws_stream.send(Message::Text(json_msg)).await?;
+                println!("📤 [Rust] 메시지 전송 완료");
 
-                println!("✅ [Rust] 메시지 전송 완료");
+                ws_stream.close(None).await?;
+                println!("🔒 [Rust] 연결 종료 완료");
 
-                // optional: 서버 응답 수신
-                if let Some(msg) = ws_stream.next().await {
-                    println!("📥 [Rust] 서버 응답 수신: {:?}", msg);
-                }
-
-                break Ok(());
+                return Ok(());
             }
             Err(e) => {
-                retries += 1;
-                eprintln!("❌ [Rust] 연결 실패 ({}회): {}", retries, e);
-
-                if retries >= max_retries {
-                    eprintln!("🚨 [Rust] 재시도 한계 도달. 중단합니다.");
-                    break Err(e.into());
+                eprintln!("❌ [Rust] 연결 실패 ({}회차): {}", attempt, e);
+                if attempt >= max_retries {
+                    eprintln!("🚨 [Rust] 최대 재시도 도달. 종료합니다.");
+                    return Err(e.into());
                 }
 
-                println!("⏳ [Rust] {}초 후 재시도 중...", 2);
+                println!("⏳ {}초 후 재시도 예정...", 2);
                 sleep(Duration::from_secs(2)).await;
             }
         }
     }
+
+    Ok(())
 }
