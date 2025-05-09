@@ -5,7 +5,7 @@ use anyhow::Context;
 use crate::config::{nfs_root, public_upload_base_url};
 use crate::message::ImageConvertMessage;
 use crate::notifier::notify_ascii_complete;
-use crate::rabbitmq::publish_progress;
+// use crate::rabbitmq::publish_progress;
 use crate::redis::save_ascii_url_to_redis;
 use crate::notifier::notify_progress_update;
 
