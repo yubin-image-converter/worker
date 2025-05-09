@@ -1,7 +1,7 @@
 use std::fs::{self, File};
 use std::io::{Cursor, Write};
-use std::path::PathBuf;
-
+use std::path::{Path, PathBuf};
+use anyhow::Context;
 use crate::config::{nfs_root, public_upload_base_url};
 use crate::message::ImageConvertMessage;
 use crate::notifier::notify_ascii_complete;
@@ -35,11 +35,16 @@ pub async fn handle_image_convert(msg: ImageConvertMessage) -> anyhow::Result<()
 
 /// 이미지 파일 경로에서 Image 객체 로드
 fn load_image_from_path(path: &str) -> anyhow::Result<DynamicImage> {
-    let bytes = fs::read(path)?;
-    let img = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()?
-        .decode()?;
-    Ok(img)
+    let path = Path::new(path);
+
+    ImageReader::new(Cursor::new(
+        fs::read(path)
+            .with_context(|| format!("파일 읽기 실패: {}", path.display()))?,
+    ))
+        .with_guessed_format()
+        .context("이미지 포맷 자동 감지 실패")?
+        .decode()
+        .context("이미지 디코딩 실패") // png/jpg 등에서 깨졌을 때
 }
 
 /// 이미지 → ASCII 텍스트로 변환
