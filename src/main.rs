@@ -1,11 +1,15 @@
+mod config;
 mod handler;
 mod message;
-mod rabbitmq;
 mod notifier;
+mod rabbitmq;
+mod redis;
 
-use dotenv::dotenv;
 use lapin::{
-    options::{BasicAckOptions, BasicConsumeOptions, ExchangeDeclareOptions, QueueBindOptions, QueueDeclareOptions},
+    options::{
+        BasicAckOptions, BasicConsumeOptions, ExchangeDeclareOptions, QueueBindOptions,
+        QueueDeclareOptions,
+    },
     types::FieldTable,
     ExchangeKind,
 };
@@ -18,11 +22,13 @@ use std::env;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    dotenv().ok();
+    dotenvy::dotenv().ok();
 
-    let exchange_name = env::var("RABBITMQ_EXCHANGE").unwrap_or("image.convert.exchange".to_string());
+    let exchange_name =
+        env::var("RABBITMQ_EXCHANGE").unwrap_or("image.convert.exchange".to_string());
     let queue_name = env::var("RABBITMQ_QUEUE").unwrap_or("image.convert.queue".to_string());
-    let routing_key = env::var("RABBITMQ_ROUTING_KEY").unwrap_or("image.convert.routingKey".to_string());
+    let routing_key =
+        env::var("RABBITMQ_ROUTING_KEY").unwrap_or("image.convert.routingKey".to_string());
 
     let channel = get_channel().await?;
 
@@ -91,7 +97,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
 
                         // ack 처리
-                        if let Err(e) = channel.basic_ack(delivery_tag, BasicAckOptions::default()).await {
+                        if let Err(e) = channel
+                            .basic_ack(delivery_tag, BasicAckOptions::default())
+                            .await
+                        {
                             eprintln!("❌ Failed to ack message: {:?}", e);
                         }
                     });

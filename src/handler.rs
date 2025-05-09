@@ -2,50 +2,50 @@ use std::fs::{self, File};
 use std::io::{Cursor, Write};
 use std::path::PathBuf;
 
+use crate::config::{nfs_root, public_upload_base_url};
+use crate::message::ImageConvertMessage;
+use crate::notifier::notify_ascii_complete;
+use crate::rabbitmq::publish_progress;
+use crate::redis::save_ascii_url_to_redis;
+
 use chrono::Utc;
 use image::io::Reader as ImageReader;
-use image::ImageOutputFormat;
-use crate::message::ImageConvertMessage;
-use crate::rabbitmq::publish_progress;
-use image::GenericImageView;
-use crate::notifier::notify_ascii_complete;
+use image::{DynamicImage, GenericImageView};
 
-const NFS_ROOT: &str = "./uploads"; // 로컬 개발용 경로
+pub async fn handle_image_convert(msg: ImageConvertMessage) -> anyhow::Result<()> {
+    let img = load_image_from_path(&msg.path)?;
 
-/// 포맷 문자열을 ImageOutputFormat으로 변환
-fn parse_format(format_str: &str) -> Option<ImageOutputFormat> {
-    match format_str.to_lowercase().as_str() {
-        "png" => Some(ImageOutputFormat::Png),
-        "jpeg" | "jpg" => Some(ImageOutputFormat::Jpeg(80)),
-        "webp" => Some(ImageOutputFormat::WebP),
-        _ => None,
+    publish_progress(&msg.user_id, &msg.request_id, 0).await?;
+
+    let ascii = convert_to_ascii(&img);
+    let saved_path = save_ascii_to_nfs(&msg.user_id, &msg.request_id, &ascii)?;
+    println!("[Worker] Saved ASCII art to {:?}", saved_path);
+
+    let txt_url = build_txt_url(&msg.user_id, &msg.request_id, &saved_path);
+
+    if let Err(e) = save_ascii_url_to_redis(&msg.request_id, &txt_url).await {
+        eprintln!("❌ Redis 저장 실패: {:?}", e);
     }
+
+    notify_ascii_complete(&msg.request_id, &msg.user_id, &txt_url).await?;
+    publish_progress(&msg.user_id, &msg.request_id, 100).await?;
+
+    Ok(())
 }
 
-
-/// NFS 저장 함수
-fn save_ascii_to_nfs(
-    user_id: &str,
-    request_id: &str,
-    ascii_art: &str,
-) -> anyhow::Result<PathBuf> {
-    let folder_name = format!("{}-{}", user_id, request_id);
-    let dir_path = PathBuf::from(NFS_ROOT).join(folder_name);
-    fs::create_dir_all(&dir_path)?;
-
-    let timestamp = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
-    let file_path = dir_path.join(format!("{}.txt", timestamp));
-
-    let mut file = File::create(&file_path)?;
-    file.write_all(ascii_art.as_bytes())?;
-    file.flush()?;
-
-    Ok(file_path)
+/// 이미지 파일 경로에서 Image 객체 로드
+fn load_image_from_path(path: &str) -> anyhow::Result<DynamicImage> {
+    let bytes = fs::read(path)?;
+    let img = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()?
+        .decode()?;
+    Ok(img)
 }
 
-fn convert_to_ascii(img: &image::DynamicImage) -> String {
+/// 이미지 → ASCII 텍스트로 변환
+fn convert_to_ascii(img: &DynamicImage) -> String {
     let grayscale = img.grayscale();
-    let resized = grayscale.resize(160, 80, image::imageops::FilterType::Nearest); // 크기 조절
+    let resized = grayscale.resize(160, 80, image::imageops::FilterType::Nearest);
 
     let chars = ["@", "#", "S", "%", "?", "*", "+", ";", ":", ",", "."];
     let mut ascii = String::new();
@@ -63,22 +63,29 @@ fn convert_to_ascii(img: &image::DynamicImage) -> String {
     ascii
 }
 
-pub async fn handle_image_convert(msg: ImageConvertMessage) -> anyhow::Result<()> {
-    let bytes = fs::read(&msg.path)?;
-    let img = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()?
-        .decode()?;
+/// ASCII 텍스트를 저장하고 파일 경로 반환
+fn save_ascii_to_nfs(user_id: &str, request_id: &str, ascii_art: &str) -> anyhow::Result<PathBuf> {
+    let folder_name = format!("{}-{}", user_id, request_id);
+    let dir_path = PathBuf::from(nfs_root()).join(folder_name);
+    fs::create_dir_all(&dir_path)?;
 
-    publish_progress(&msg.user_id, &msg.request_id, 0).await?;
+    let timestamp = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let file_path = dir_path.join(format!("{}.txt", timestamp));
 
-    let ascii = convert_to_ascii(&img);
+    let mut file = File::create(&file_path)?;
+    file.write_all(ascii_art.as_bytes())?;
+    file.flush()?;
 
-    let saved_path = save_ascii_to_nfs(&msg.user_id, &msg.request_id, &ascii)?;
-    println!("[Worker] Saved ASCII art to {:?}", saved_path);
+    Ok(file_path)
+}
 
-    notify_ascii_complete(&msg.request_id, &msg.user_id, saved_path.to_string_lossy().as_ref()).await?;
+/// 저장된 ASCII 파일 경로로부터 공개 txtUrl 생성
+fn build_txt_url(user_id: &str, request_id: &str, file_path: &PathBuf) -> String {
+    let filename = file_path
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or("output.txt");
 
-    publish_progress(&msg.user_id, &msg.request_id, 100).await?;
-
-    Ok(())
+    let folder = format!("{}-{}", user_id, request_id);
+    format!("{}/{}/{}", public_upload_base_url(), folder, filename)
 }
