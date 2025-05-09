@@ -7,6 +7,7 @@ use crate::message::ImageConvertMessage;
 use crate::notifier::notify_ascii_complete;
 use crate::rabbitmq::publish_progress;
 use crate::redis::save_ascii_url_to_redis;
+use crate::notifier::notify_progress_update;
 
 use chrono::Utc;
 use image::io::Reader as ImageReader;
@@ -15,20 +16,22 @@ use image::{DynamicImage, GenericImageView};
 pub async fn handle_image_convert(msg: ImageConvertMessage) -> anyhow::Result<()> {
     let img = load_image_from_path(&msg.path)?;
 
-    publish_progress(&msg.user_id, &msg.request_id, 0).await?;
+    // ✅ 초기 상태 전송
+    notify_progress_update(&msg.user_id, &msg.request_id, 0).await?;
 
-    let ascii = convert_to_ascii(&img);
+    // ✅ 변환 중간에 진행률 전송 포함
+    let ascii = convert_to_ascii_with_progress(&img, &msg.user_id, &msg.request_id).await?;
+
     let saved_path = save_ascii_to_nfs(&msg.user_id, &msg.request_id, &ascii)?;
-    println!("[Worker] Saved ASCII art to {:?}", saved_path);
-
     let txt_url = build_txt_url(&msg.user_id, &msg.request_id, &saved_path);
 
     if let Err(e) = save_ascii_url_to_redis(&msg.request_id, &txt_url).await {
         eprintln!("❌ Redis 저장 실패: {:?}", e);
     }
 
-    notify_ascii_complete(&msg.request_id, &msg.user_id, &txt_url).await?;
-    publish_progress(&msg.user_id, &msg.request_id, 100).await?;
+    // ✅ 완료 알림
+    notify_ascii_complete(&msg.user_id, &msg.request_id, &txt_url).await?;
+    notify_progress_update(&msg.user_id, &msg.request_id, 100).await?;
 
     Ok(())
 }
@@ -48,14 +51,21 @@ fn load_image_from_path(path: &str) -> anyhow::Result<DynamicImage> {
 }
 
 /// 이미지 → ASCII 텍스트로 변환
-fn convert_to_ascii(img: &DynamicImage) -> String {
+pub async fn convert_to_ascii_with_progress(
+    img: &DynamicImage,
+    user_id: &str,
+    request_id: &str,
+) -> anyhow::Result<String> {
     let grayscale = img.grayscale();
     let resized = grayscale.resize(160, 80, image::imageops::FilterType::Nearest);
 
     let chars = ["@", "#", "S", "%", "?", "*", "+", ";", ":", ",", "."];
     let mut ascii = String::new();
 
-    for y in 0..resized.height() {
+    let height = resized.height();
+    let mut last_reported_progress = 0;
+
+    for y in 0..height {
         for x in 0..resized.width() {
             let pixel = resized.get_pixel(x, y);
             let luma = pixel[0] as f32 / 255.0;
@@ -63,10 +73,18 @@ fn convert_to_ascii(img: &DynamicImage) -> String {
             ascii.push_str(chars[idx]);
         }
         ascii.push('\n');
+
+        // 🔄 진행률 계산 및 전송
+        let progress = ((y + 1) * 100 / height) as u8;
+        if progress >= last_reported_progress + 10 {
+            notify_progress_update(user_id, request_id, progress).await?;
+            last_reported_progress = progress;
+        }
     }
 
-    ascii
+    Ok(ascii)
 }
+
 
 /// ASCII 텍스트를 저장하고 파일 경로 반환
 fn save_ascii_to_nfs(user_id: &str, request_id: &str, ascii_art: &str) -> anyhow::Result<PathBuf> {

@@ -5,8 +5,18 @@ use tokio_tungstenite::connect_async;
 use futures_util::SinkExt;
 use tokio_tungstenite::tungstenite::Message;
 
-#[derive(Serialize)]
-struct AsciiCompletePayload<'a> {
+const WS_URL: &str = "ws://localhost:4001";
+const MAX_RETRIES: u8 = 10;
+
+#[derive(Serialize, Debug)]
+struct WsEventPayload<'a, T: Serialize> {
+    event: &'a str,
+    data: T,
+}
+
+// 기존: ASCII 변환 완료
+#[derive(Serialize, Debug)]
+pub struct AsciiCompleteData<'a> {
     #[serde(rename = "userId")]
     user_id: &'a str,
     #[serde(rename = "requestId")]
@@ -15,45 +25,79 @@ struct AsciiCompletePayload<'a> {
     txt_url: &'a str,
 }
 
-pub async fn notify_ascii_complete(user_id: &str, request_id: &str, txt_url: &str) -> Result<()> {
-    let ws_url = "ws://localhost:4001"; // ← path 없이 루트로 연결
-    let max_retries = 10;
+// 추가: 진행률
+#[derive(Serialize, Debug)]
+pub struct ProgressUpdateData<'a> {
+    #[serde(rename = "userId")]
+    user_id: &'a str,
+    #[serde(rename = "requestId")]
+    request_id: &'a str,
+    progress: u8,
+}
 
-    let payload = AsciiCompletePayload {
-        user_id,
-        request_id,
-        txt_url,
-    };
+// ✅ 공통 전송 함수
+async fn send_ws_event<T: Serialize + std::fmt::Debug>(
+    event: &str,
+    data: T,
+) -> Result<()> {
+    let payload = WsEventPayload { event, data };
+    let msg_json = serde_json::to_string(&payload)?;
 
-    println!("🚀 [Rust] ASCII 변환 완료 알림 준비됨");
-    println!("🧾 Payload → {:?}", serde_json::to_string(&payload)?);
+    println!("📤 [Rust] WebSocket 메시지 준비됨 → {}", msg_json);
 
-    for attempt in 1..=max_retries {
-        match connect_async(ws_url).await {
+    for attempt in 1..=MAX_RETRIES {
+        match connect_async(WS_URL).await {
             Ok((mut ws_stream, _)) => {
-                println!("✅ [Rust] WebSocket 연결 성공 ({})", ws_url);
-
-                let json_msg = serde_json::to_string(&payload)?;
-                ws_stream.send(Message::Text(json_msg)).await?;
-                println!("📤 [Rust] 메시지 전송 완료");
-
+                println!("✅ WebSocket 연결 성공");
+                ws_stream.send(Message::Text(msg_json.clone())).await?;
                 ws_stream.close(None).await?;
-                println!("🔒 [Rust] 연결 종료 완료");
-
+                println!("🔒 연결 종료 완료");
                 return Ok(());
             }
             Err(e) => {
-                eprintln!("❌ [Rust] 연결 실패 ({}회차): {}", attempt, e);
-                if attempt >= max_retries {
-                    eprintln!("🚨 [Rust] 최대 재시도 도달. 종료합니다.");
+                eprintln!("❌ 연결 실패 ({}회차): {}", attempt, e);
+                if attempt == MAX_RETRIES {
                     return Err(e.into());
                 }
-
-                println!("⏳ {}초 후 재시도 예정...", 2);
+                println!("⏳ 재시도 중... (2초 대기)");
                 sleep(Duration::from_secs(2)).await;
             }
         }
     }
 
     Ok(())
+}
+
+// 외부 공개용 함수 ① ASCII 변환 완료 알림
+pub async fn notify_ascii_complete(
+    user_id: &str,
+    request_id: &str,
+    txt_url: &str,
+) -> Result<()> {
+    send_ws_event(
+        "ascii_complete",
+        AsciiCompleteData {
+            user_id,
+            request_id,
+            txt_url,
+        },
+    )
+        .await
+}
+
+// 외부 공개용 함수 ② 진행률 업데이트 전송
+pub async fn notify_progress_update(
+    user_id: &str,
+    request_id: &str,
+    progress: u8,
+) -> Result<()> {
+    send_ws_event(
+        "progress_update",
+        ProgressUpdateData {
+            user_id,
+            request_id,
+            progress,
+        },
+    )
+        .await
 }
