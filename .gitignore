@@ -14,7 +14,4 @@ Thumbs.db
 # Logs
 *.log
 
-# Cargo
-/Cargo.lock
-
 .env
