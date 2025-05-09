@@ -4,7 +4,7 @@ FROM rust:1.77 AS builder
 WORKDIR /app
 
 # 캐싱을 위해 먼저 dependencies만 복사
-COPY Cargo.toml Cargo.lock ./
+COPY ./Cargo.toml ./Cargo.lock ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo build --release
 RUN rm -rf src
