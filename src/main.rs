@@ -15,20 +15,18 @@ use lapin::{
 };
 use rabbitmq::get_channel;
 
+use crate::config::{rabbitmq_exchange, rabbitmq_queue, rabbitmq_routing_key};
 use futures_util::stream::StreamExt;
 use message::ImageConvertMessage;
-use std::env;
 // use tokio_amqp::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
 
-    let exchange_name =
-        env::var("RABBITMQ_EXCHANGE").unwrap_or("image.convert.exchange".to_string());
-    let queue_name = env::var("RABBITMQ_QUEUE").unwrap_or("image.convert.queue".to_string());
-    let routing_key =
-        env::var("RABBITMQ_ROUTING_KEY").unwrap_or("image.convert.routingKey".to_string());
+    let exchange_name = rabbitmq_exchange();
+    let queue_name = rabbitmq_queue();
+    let routing_key = rabbitmq_routing_key();
 
     let channel = get_channel().await?;
 

@@ -1,12 +1,16 @@
 use anyhow::Result;
+use futures_util::SinkExt;
+use once_cell::sync::Lazy;
 use serde::Serialize;
 use tokio::time::{sleep, Duration};
 use tokio_tungstenite::connect_async;
-use futures_util::SinkExt;
 use tokio_tungstenite::tungstenite::Message;
 
-const WS_URL: &str = "ws://localhost:4001";
 const MAX_RETRIES: u8 = 10;
+// 📌 여기에!
+static WS_URL: Lazy<String> = Lazy::new(|| {
+    std::env::var("WS_SERVER_URL").unwrap_or_else(|_| "ws://localhost:4001".to_string())
+});
 
 #[derive(Serialize, Debug)]
 struct WsEventPayload<'a, T: Serialize> {
@@ -36,17 +40,14 @@ pub struct ProgressUpdateData<'a> {
 }
 
 // ✅ 공통 전송 함수
-async fn send_ws_event<T: Serialize + std::fmt::Debug>(
-    event: &str,
-    data: T,
-) -> Result<()> {
+async fn send_ws_event<T: Serialize + std::fmt::Debug>(event: &str, data: T) -> Result<()> {
     let payload = WsEventPayload { event, data };
     let msg_json = serde_json::to_string(&payload)?;
 
     println!("📤 [Rust] WebSocket 메시지 준비됨 → {}", msg_json);
 
     for attempt in 1..=MAX_RETRIES {
-        match connect_async(WS_URL).await {
+        match connect_async(WS_URL.as_str()).await {
             Ok((mut ws_stream, _)) => {
                 println!("✅ WebSocket 연결 성공");
                 ws_stream.send(Message::Text(msg_json.clone())).await?;
@@ -69,11 +70,7 @@ async fn send_ws_event<T: Serialize + std::fmt::Debug>(
 }
 
 // 외부 공개용 함수 ① ASCII 변환 완료 알림
-pub async fn notify_ascii_complete(
-    user_id: &str,
-    request_id: &str,
-    txt_url: &str,
-) -> Result<()> {
+pub async fn notify_ascii_complete(user_id: &str, request_id: &str, txt_url: &str) -> Result<()> {
     send_ws_event(
         "ascii_complete",
         AsciiCompleteData {
@@ -82,15 +79,11 @@ pub async fn notify_ascii_complete(
             txt_url,
         },
     )
-        .await
+    .await
 }
 
 // 외부 공개용 함수 ② 진행률 업데이트 전송
-pub async fn notify_progress_update(
-    user_id: &str,
-    request_id: &str,
-    progress: u8,
-) -> Result<()> {
+pub async fn notify_progress_update(user_id: &str, request_id: &str, progress: u8) -> Result<()> {
     send_ws_event(
         "progress_update",
         ProgressUpdateData {
@@ -99,5 +92,5 @@ pub async fn notify_progress_update(
             progress,
         },
     )
-        .await
+    .await
 }
