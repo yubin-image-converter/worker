@@ -1,5 +1,7 @@
-# 1. 빌드 스테이지 - musl로 빌드
+# 1. 빌드 스테이지 - musl로 빌드 가능하게
 FROM rust:1.81 AS builder
+
+RUN apt-get update && apt-get install -y musl-tools pkg-config libssl-dev
 
 WORKDIR /app
 
