@@ -44,23 +44,30 @@ async fn send_ws_event<T: Serialize + std::fmt::Debug>(event: &str, data: T) -> 
     let payload = WsEventPayload { event, data };
     let msg_json = serde_json::to_string(&payload)?;
 
-    println!("📤 [Rust] WebSocket 메시지 준비됨 → {}", msg_json);
+    println!("📤 [Rust] WebSocket 이벤트 전송 준비");
+    println!("🧾 이벤트 종류: {}", event);
+    println!("📦 페이로드 데이터: {:?}", payload);
+    println!("🛰️ WS 서버 주소: {}", WS_URL.as_str());
 
     for attempt in 1..=MAX_RETRIES {
+        println!("🔄 WebSocket 연결 시도 ({}회차)", attempt);
         match connect_async(WS_URL.as_str()).await {
             Ok((mut ws_stream, _)) => {
                 println!("✅ WebSocket 연결 성공");
+                println!("📨 메시지 전송 중...");
                 ws_stream.send(Message::Text(msg_json.clone())).await?;
+                println!("📬 메시지 전송 완료");
                 ws_stream.close(None).await?;
-                println!("🔒 연결 종료 완료");
+                println!("🔒 WebSocket 연결 종료 완료");
                 return Ok(());
             }
             Err(e) => {
-                eprintln!("❌ 연결 실패 ({}회차): {}", attempt, e);
+                eprintln!("❌ WebSocket 연결 실패 ({}회차): {}", attempt, e);
                 if attempt == MAX_RETRIES {
+                    eprintln!("🚨 최대 재시도 횟수 초과. 전송 포기.");
                     return Err(e.into());
                 }
-                println!("⏳ 재시도 중... (2초 대기)");
+                println!("⏳ {}초 후 재시도 예정...", 2);
                 sleep(Duration::from_secs(2)).await;
             }
         }
