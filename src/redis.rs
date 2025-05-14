@@ -31,7 +31,7 @@ pub async fn save_ascii_url_to_redis(request_id: &str, txt_url: &str) -> anyhow:
     let key = format!("ascii_result:{}", request_id);
     let ttl_seconds = 3600;
 
-    let result = conn.set_ex(&key, txt_url, ttl_seconds).await;
+    let result: redis::RedisResult<()> = conn.set_ex(&key, txt_url, ttl_seconds).await;
 
     match result {
         Ok(_) => println!("✅ [Redis] Saved key: {}, ttl: {}s", key, ttl_seconds),
