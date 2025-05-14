@@ -39,7 +39,14 @@ pub fn public_upload_base_url() -> String {
 
 /// Redis 접속 URL
 pub fn redis_url() -> String {
-    env::var("REDIS_URL").unwrap_or_else(|_| "redis://default:local@localhost:6379".to_string())
+    let host = env::var("REDIS_HOST").unwrap_or_else(|_| "localhost".to_string());
+    let port = env::var("REDIS_PORT").unwrap_or_else(|_| "6379".to_string());
+    let password = env::var("REDIS_PASSWORD").ok();
+
+    match password {
+        Some(pw) => format!("redis://:{}@{}:{}/", pw, host, port),
+        None => format!("redis://{}:{}/", host, port),
+    }
 }
 
 pub fn progress_exchange() -> String {
