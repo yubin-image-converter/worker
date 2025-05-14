@@ -14,24 +14,29 @@ use image::io::Reader as ImageReader;
 use image::{DynamicImage, GenericImageView};
 
 pub async fn handle_image_convert(msg: ImageConvertMessage) -> anyhow::Result<()> {
+    println!("📥 변환 요청 수신: user_id={}, request_id={}", msg.user_id, msg.request_id);
+    println!("📂 입력 이미지 경로: {}", msg.path);
+
     let img = load_image_from_path(&msg.path)?;
 
-    // ✅ 초기 상태 전송
     notify_progress_update(&msg.user_id, &msg.request_id, 0).await?;
 
-    // ✅ 변환 중간에 진행률 전송 포함
     let ascii = convert_to_ascii_with_progress(&img, &msg.user_id, &msg.request_id).await?;
 
     let saved_path = save_ascii_to_nfs(&msg.user_id, &msg.request_id, &ascii)?;
+    println!("📁 ASCII 저장 완료: {}", saved_path.display());
+
     let txt_url = build_txt_url(&msg.user_id, &msg.request_id, &saved_path);
+    println!("🌐 공개 txt URL: {}", txt_url);
 
     if let Err(e) = save_ascii_url_to_redis(&msg.request_id, &txt_url).await {
         eprintln!("❌ Redis 저장 실패: {:?}", e);
     }
 
-    // ✅ 완료 알림
     notify_ascii_complete(&msg.user_id, &msg.request_id, &txt_url).await?;
     notify_progress_update(&msg.user_id, &msg.request_id, 100).await?;
+
+    println!("✅ 변환 처리 완료");
 
     Ok(())
 }
@@ -39,15 +44,18 @@ pub async fn handle_image_convert(msg: ImageConvertMessage) -> anyhow::Result<()
 /// 이미지 파일 경로에서 Image 객체 로드
 fn load_image_from_path(path: &str) -> anyhow::Result<DynamicImage> {
     let path = Path::new(path);
+    println!("🖼️ 이미지 파일 로딩 시도: {}", path.display());
 
-    ImageReader::new(Cursor::new(
-        fs::read(path)
-            .with_context(|| format!("파일 읽기 실패: {}", path.display()))?,
-    ))
+    let data = fs::read(path)
+        .with_context(|| format!("파일 읽기 실패: {}", path.display()))?;
+
+    println!("✅ 이미지 파일 읽기 성공 ({} bytes)", data.len());
+
+    ImageReader::new(Cursor::new(data))
         .with_guessed_format()
         .context("이미지 포맷 자동 감지 실패")?
         .decode()
-        .context("이미지 디코딩 실패") // png/jpg 등에서 깨졌을 때
+        .context("이미지 디코딩 실패")
 }
 
 /// 이미지 → ASCII 텍스트로 변환
@@ -110,5 +118,7 @@ fn build_txt_url(user_id: &str, request_id: &str, file_path: &PathBuf) -> String
         .unwrap_or("output.txt");
 
     let folder = format!("{}-{}", user_id, request_id);
-    format!("{}/{}/{}", public_upload_base_url(), folder, filename)
+    let url = format!("{}/{}/{}", public_upload_base_url(), folder, filename);
+    println!("🔗 ASCII 접근 URL 생성됨: {}", url);
+    url
 }

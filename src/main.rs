@@ -15,7 +15,7 @@ use lapin::{
 };
 use rabbitmq::get_channel;
 
-use crate::config::{rabbitmq_exchange, rabbitmq_queue, rabbitmq_routing_key};
+use crate::config::{nfs_root, rabbitmq_exchange, rabbitmq_queue, rabbitmq_routing_key};
 use futures_util::stream::StreamExt;
 use message::ImageConvertMessage;
 // use tokio_amqp::*;
@@ -23,6 +23,7 @@ use message::ImageConvertMessage;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
+    println!("📦 NFS 루트: {}", nfs_root());
 
     let exchange_name = rabbitmq_exchange();
     let queue_name = rabbitmq_queue();
