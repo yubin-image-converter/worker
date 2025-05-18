@@ -53,7 +53,7 @@
 * 변환 결과를 Redis에 저장 또는 WebSocket으로 전송
 * 실패한 작업에 대한 오류 처리 및 로깅
 * Config 기반 유연한 설정 지원
-* http polling 기반 health 체크 기능 구현 예정
+* http polling 기반 health 체크 기능 (구현 예정)
 
 ---
 
@@ -122,7 +122,7 @@ REDIS_PASSWORD=your-redis-password
 {
   "type": "ascii_complete",
   "requestId": "ulid-generated-id",
-  "txtUrl": "https://cdn.image-converter.yubinshin.com/ascii/ulid.txt"
+  "txtUrl": "https://api.image-converter.yubinshin.com/ascii/example-ulid.txt"
 }
 ```
 
@@ -133,8 +133,8 @@ REDIS_PASSWORD=your-redis-password
 ## Error Handling & Retry Strategy
 
 * 모든 실패 로그는 `log` crate를 통해 기록되며, `anyhow::Result` 기반 에러 전파로 디버깅을 용이하게 합니다.
-* RabbitMQ 컨슈머는 실패한 메시지를 ack하지 않음으로써 재전송이 유도되며, `lapin`의 QoS 설정으로 병렬 처리량을 제어합니다.
-* WebSocket 연결 실패 시에는 로그만 기록하고, 변환 결과는 Redis에 저장되어 클라이언트에서 polling으로 조회할 수 있습니다.
+* 워커는 메시지 처리 성공 시에만 basic_ack를 호출하고, 실패 시에는 ack를 생략하여 메시지가 RabbitMQ에 의해 재전송되도록 합니다. lapin의 BasicQosOptions을 통해 병렬로 처리할 수 있는 메시지 수(prefetch_count)도 제한하고 있어 안정적인 처리 흐름을 유지합니다.
+* WebSocket 연결 실패 시에는 로그만 기록하고, 변환 결과는 Redis에 저장되어 클라이언트에서 api 서버를 통한 요청으로 조회할 수 있습니다.
 
 ---
 
