@@ -13,7 +13,7 @@
 
 
 - View Live Demo: [https://image-converter.yubinshin.com/](https://image-converter.yubinshin.com/)
-- Architecture Overview: [Project README](https://github.com/yubin-image-converter/k8s)
+- Architecture Overview: [Project README](https://github.com/yubin-image-converter)
 
 ---
 
@@ -53,6 +53,7 @@
 * 변환 결과를 Redis에 저장 또는 WebSocket으로 전송
 * 실패한 작업에 대한 오류 처리 및 로깅
 * Config 기반 유연한 설정 지원
+* http polling 기반 health 체크 기능 구현 예정
 
 ---
 
@@ -86,10 +87,17 @@ docker run --env-file .env ascii-worker
 `.env` 또는 환경 변수로 설정:
 
 ```env
-RABBITMQ_URI=amqps://guest:guest@rabbitmq:5672/%2f
+AMQP_URL=amqp://guest:guest@localhost:5672
+RABBITMQ_EXCHANGE=image.convert.exchange
 RABBITMQ_QUEUE=image.convert.queue
-REDIS_URL=redis://localhost:6379
-API_SERVER_URL=http://api:8080
+RABBITMQ_ROUTING_KEY=image.convert.routingKey
+RABBITMQ_RESULT_QUEUE=image.convert.result.queue
+NFS_ROOT=your-nfs-path
+PUBLIC_UPLOAD_BASE_URL=/uploads
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_USER=default
+REDIS_PASSWORD=your-redis-password
 ```
 
 ---
